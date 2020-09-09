@@ -21,6 +21,15 @@ type Transaction struct {
 	Amount      float64
 }
 
+type ChaseTransaction struct {
+	TransactionDate string
+	PostDate        string
+	Description     string
+	Category        string
+	Type            string
+	Amount          float32
+}
+
 func loadTransactions(sourceType string, inputFilePath string) ([]Transaction, error) {
 
 }
