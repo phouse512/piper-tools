@@ -20,6 +20,7 @@ func main() {
 						Usage: "audit financial data with coda",
 						Action: func(c *cli.Context) error {
 							fmt.Println("auditing financial data.")
+
 							return nil
 						},
 					},
