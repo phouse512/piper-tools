@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/csv"
+	"io"
+	"log"
+	"os"
 	"time"
 )
 
@@ -31,7 +34,12 @@ type ChaseTransaction struct {
 }
 
 func (c ChaseTransaction) GetDate() time.Time {
-	return c.TransactionDate
+	timeObj, err := time.Parse("01-02-06", c.TransactionDate)
+	if err != nil {
+		panic(err)
+	}
+
+	return timeObj
 }
 
 func (c ChaseTransaction) GetAmount() float32 {
@@ -48,7 +56,7 @@ type CodaTransaction struct {
 }
 
 func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
-	transactions := []Transaction{}
+	transactions := []ChaseTransaction{}
 	csvfile, err := os.Open(inputFilePath)
 	if err != nil {
 		return transactions, err
@@ -79,4 +87,5 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 	// load input file, pare based on source type
 
 	// sort by date
+	return false, nil
 }

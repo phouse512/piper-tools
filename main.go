@@ -18,9 +18,28 @@ func main() {
 					{
 						Name:  "audit",
 						Usage: "audit financial data with coda",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:    "filepath",
+								Usage:   "filepath to the csv.",
+								Aliases: []string{"f"},
+							},
+						},
 						Action: func(c *cli.Context) error {
 							fmt.Println("auditing financial data.")
 
+							if len(c.String("filepath")) < 1 {
+								log.Println("No filepath specified for audit source, aborting.")
+								return nil
+							}
+
+							transactions, err := LoadChaseTransactions(c.String("filepath"))
+							if err != nil {
+								log.Println("Received error when loading transactions: ", err)
+								return nil
+							}
+
+							log.Println(transactions)
 							return nil
 						},
 					},
