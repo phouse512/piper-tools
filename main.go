@@ -2,12 +2,23 @@ package main
 
 import (
 	"fmt"
+	"github.com/spf13/viper"
 	"github.com/urfave/cli/v2"
 	"log"
 	"os"
+	"time"
 )
 
 func main() {
+	viper.SetConfigName("config")
+	viper.SetConfigType("json")
+	viper.AddConfigPath(".")
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Print("Unable to read in config.json")
+		log.Fatal(err)
+	}
+
 	app := &cli.App{
 		Commands: []*cli.Command{
 			{
@@ -24,6 +35,11 @@ func main() {
 								Usage:   "filepath to the csv.",
 								Aliases: []string{"f"},
 							},
+							&cli.StringFlag{
+								Name:    "date",
+								Usage:   "date string, %m-%d-%y",
+								Aliases: []string{"d"},
+							},
 						},
 						Action: func(c *cli.Context) error {
 							fmt.Println("auditing financial data.")
@@ -33,13 +49,31 @@ func main() {
 								return nil
 							}
 
-							transactions, err := LoadChaseTransactions(c.String("filepath"))
+							chaseTransactions, err := LoadChaseTransactions(c.String("filepath"))
 							if err != nil {
 								log.Println("Received error when loading transactions: ", err)
 								return nil
 							}
 
-							log.Println(transactions)
+							account := Account{
+								Name:   "GoodAccount",
+								CodaId: "Test",
+							}
+
+							dateObj, err := time.Parse("01-02-06", c.String("date"))
+							if err != nil {
+								log.Println("Received error when parsing date: ", err)
+								return err
+							}
+
+							transactions := make([]Transaction, len(chaseTransactions))
+							for i := range chaseTransactions {
+								transactions[i] = chaseTransactions[i]
+							}
+							result, err := AuditFinance(account, transactions, dateObj)
+							log.Print(err)
+							log.Print(result)
+
 							return nil
 						},
 					},

@@ -2,15 +2,19 @@ package main
 
 import (
 	"encoding/csv"
+	"github.com/phouse512/go-coda"
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"time"
 )
 
 const (
 	ChaseSource = "Chase"
 	VenmoSource = "Venmo"
+
+	FinanceDocId = "dsz-gfMWR-I"
 )
 
 type Account struct {
@@ -74,14 +78,40 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 			return transactions, err
 		}
 
-		log.Print(record)
-		log.Print(record[0])
-		log.Print(record[1])
+		if len(record) != 6 {
+			log.Print("Skipping because of invalid row count.")
+			continue
+		}
+
+		val, err := strconv.ParseFloat(record[5], 32)
+		if err != nil {
+			log.Print("Unable to parse value as float, skipping.")
+			continue
+		}
+		newTransaction := ChaseTransaction{
+			TransactionDate: record[0],
+			PostDate:        record[1],
+			Description:     record[2],
+			Category:        record[3],
+			Type:            record[4],
+			Amount:          float32(val),
+		}
+
+		transactions = append(transactions, newTransaction)
 	}
 	return transactions, nil
 }
 
 func AuditFinance(account Account, transactions []Transaction, date time.Time) (bool, error) {
+	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
+	listTablesPayload := coda.ListTablesPayload{}
+	tables, err := codaClient.ListTables(FinanceDocId, listTablesPayload)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Print(tables)
+
 	// fetch records from account, filter by date
 
 	// load input file, pare based on source type
