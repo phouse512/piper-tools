@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/csv"
+	"fmt"
 	"github.com/phouse512/go-coda"
+	"github.com/spf13/viper"
 	"io"
 	"log"
 	"os"
@@ -14,7 +16,11 @@ const (
 	ChaseSource = "Chase"
 	VenmoSource = "Venmo"
 
-	FinanceDocId = "dsz-gfMWR-I"
+	FinanceDocId        = "sz-gfMWR-I"
+	TransactionsTableId = "grid-53oPnJh4Bt"
+	DateColumnId        = "c-4ID4XR1ync"
+	DebitColumnId       = "c-FVYpl1uPC1"
+	CreditColumnId      = "c-VvaO1RyiJN"
 )
 
 type Account struct {
@@ -38,7 +44,7 @@ type ChaseTransaction struct {
 }
 
 func (c ChaseTransaction) GetDate() time.Time {
-	timeObj, err := time.Parse("01-02-06", c.TransactionDate)
+	timeObj, err := time.Parse("01/02/2006", c.TransactionDate)
 	if err != nil {
 		panic(err)
 	}
@@ -104,17 +110,40 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 
 func AuditFinance(account Account, transactions []Transaction, date time.Time) (bool, error) {
 	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
-	listTablesPayload := coda.ListTablesPayload{}
-	tables, err := codaClient.ListTables(FinanceDocId, listTablesPayload)
+
+	dateStringTz := fmt.Sprintf("%sT22:00:00.000-07:00", date.Format("2006-01-02"))
+	rowQuery := coda.ListRowsParameters{
+		Query: fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz),
+	}
+	log.Print(rowQuery)
+	rows, err := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Print(tables)
+	for _, row := range rows.Rows {
+		log.Print(row.Id)
+		log.Print(row.Values[DateColumnId])
+	}
+
+	log.Printf("Found %d transactions from coda with date.", len(rows.Rows))
 
 	// fetch records from account, filter by date
+	var prunedSrcTransactions []Transaction
 
+	for _, transaction := range transactions {
+		if transaction.GetDate() == date {
+			prunedSrcTransactions = append(prunedSrcTransactions, transaction)
+		}
+	}
+
+	log.Printf("Found %d pruned transactions from source.", len(prunedSrcTransactions))
 	// load input file, pare based on source type
+	//
+
+	for _, src := range prunedSrcTransactions {
+		log.Print(src)
+	}
 
 	// sort by date
 	return false, nil
