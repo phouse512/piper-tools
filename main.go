@@ -40,6 +40,11 @@ func main() {
 								Usage:   "date string, %m-%d-%y",
 								Aliases: []string{"d"},
 							},
+							&cli.StringFlag{
+								Name:    "account",
+								Usage:   "acccount name",
+								Aliases: []string{"a"},
+							},
 						},
 						Action: func(c *cli.Context) error {
 							fmt.Println("auditing financial data.")
@@ -49,15 +54,21 @@ func main() {
 								return nil
 							}
 
+							if len(c.String("account")) < 1 {
+								log.Print("No account specified, aborting.")
+								return nil
+							}
+
 							chaseTransactions, err := LoadChaseTransactions(c.String("filepath"))
 							if err != nil {
 								log.Println("Received error when loading transactions: ", err)
 								return nil
 							}
 
-							account := Account{
-								Name:   "GoodAccount",
-								CodaId: "Test",
+							account, err := SearchAccount(c.String("account"))
+							if err != nil {
+								log.Printf("Unable to find account with name: %s", c.String("account"))
+								return nil
 							}
 
 							dateObj, err := time.Parse("01-02-06", c.String("date"))

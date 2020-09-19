@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"github.com/phouse512/go-coda"
 	"github.com/spf13/viper"
@@ -18,9 +19,12 @@ const (
 
 	FinanceDocId        = "sz-gfMWR-I"
 	TransactionsTableId = "grid-53oPnJh4Bt"
-	DateColumnId        = "c-4ID4XR1ync"
-	DebitColumnId       = "c-FVYpl1uPC1"
-	CreditColumnId      = "c-VvaO1RyiJN"
+	AccountsTableId     = "grid-Jzlaq7_uYQ"
+
+	AccountsNameColumnId = "c-mwy2jqwnOQ"
+	DateColumnId         = "c-4ID4XR1ync"
+	DebitColumnId        = "c-FVYpl1uPC1"
+	CreditColumnId       = "c-VvaO1RyiJN"
 )
 
 type Account struct {
@@ -108,25 +112,57 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 	return transactions, nil
 }
 
+func filterCodaRows(account Account, rows []coda.Row) []coda.Row {
+	// filter out coda rows by account
+	var prunedRows []coda.Row
+	for _, row := range rows {
+
+		// convert interface{} to map, and access rowId
+		creditRefId := row.Values[CreditColumnId].(map[string]interface{})["rowId"]
+		debitRefId := row.Values[DebitColumnId].(map[string]interface{})["rowId"]
+
+		if debitRefId == account.CodaId || creditRefId == account.CodaId {
+			prunedRows = append(prunedRows, row)
+		}
+	}
+
+	return prunedRows
+}
+
+func SearchAccount(searchVal string) (Account, error) {
+	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
+
+	rowQuery := coda.ListRowsParameters{
+		Query: fmt.Sprintf("%s:\"%s\"", AccountsNameColumnId, searchVal),
+	}
+	rowResp, err := codaClient.ListTableRows(FinanceDocId, AccountsTableId, rowQuery)
+	if err != nil {
+		return Account{}, err
+	}
+
+	if len(rowResp.Rows) != 1 {
+		return Account{}, errors.New("Unable to find accounts with name.")
+	}
+
+	return Account{
+		Name:   rowResp.Rows[0].Name,
+		CodaId: rowResp.Rows[0].Id,
+	}, nil
+}
+
 func AuditFinance(account Account, transactions []Transaction, date time.Time) (bool, error) {
 	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
 
-	dateStringTz := fmt.Sprintf("%sT22:00:00.000-07:00", date.Format("2006-01-02"))
+	updatedDate := date.AddDate(0, 0, -1)
+	dateStringTz := fmt.Sprintf("%sT22:00:00.000-07:00", updatedDate.Format("2006-01-02"))
 	rowQuery := coda.ListRowsParameters{
-		Query: fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz),
+		Query:       fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz),
+		ValueFormat: "rich",
 	}
-	log.Print(rowQuery)
 	rows, err := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery)
 	if err != nil {
 		panic(err)
 	}
-
-	for _, row := range rows.Rows {
-		log.Print(row.Id)
-		log.Print(row.Values[DateColumnId])
-	}
-
-	log.Printf("Found %d transactions from coda with date.", len(rows.Rows))
 
 	// fetch records from account, filter by date
 	var prunedSrcTransactions []Transaction
@@ -144,6 +180,10 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 	for _, src := range prunedSrcTransactions {
 		log.Print(src)
 	}
+
+	prunedCodaTransactions := filterCodaRows(account, rows.Rows)
+	log.Printf("Found %d unpruned rows from coda.", len(rows.Rows))
+	log.Printf("Found %d rows from coda to audit.", len(prunedCodaTransactions))
 
 	// sort by date
 	return false, nil
