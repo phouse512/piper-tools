@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/viper"
 	"io"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -25,11 +26,13 @@ const (
 	DateColumnId         = "c-4ID4XR1ync"
 	DebitColumnId        = "c-FVYpl1uPC1"
 	CreditColumnId       = "c-VvaO1RyiJN"
+	AmountColumnId       = "c-I5Fa-AJU-7"
 )
 
 type Account struct {
-	Name   string
-	CodaId string
+	Name     string
+	CodaId   string
+	IsCredit bool
 }
 
 type Transaction interface {
@@ -112,6 +115,17 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 	return transactions, nil
 }
 
+func filterSrcRows(date time.Time, rows []Transaction) []Transaction {
+	var prunedSrcTransactions []Transaction
+	for _, transaction := range rows {
+		if transaction.GetDate() == date {
+			prunedSrcTransactions = append(prunedSrcTransactions, transaction)
+		}
+	}
+
+	return prunedSrcTransactions
+}
+
 func filterCodaRows(account Account, rows []coda.Row) []coda.Row {
 	// filter out coda rows by account
 	var prunedRows []coda.Row
@@ -145,8 +159,9 @@ func SearchAccount(searchVal string) (Account, error) {
 	}
 
 	return Account{
-		Name:   rowResp.Rows[0].Name,
-		CodaId: rowResp.Rows[0].Id,
+		Name:     rowResp.Rows[0].Name,
+		CodaId:   rowResp.Rows[0].Id,
+		IsCredit: true,
 	}, nil
 }
 
@@ -164,26 +179,77 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 		panic(err)
 	}
 
-	// fetch records from account, filter by date
-	var prunedSrcTransactions []Transaction
+	prunedSrcTransactions := filterSrcRows(date, transactions)
+	log.Printf("Found %d pruned transactions from source.", len(prunedSrcTransactions))
 
-	for _, transaction := range transactions {
-		if transaction.GetDate() == date {
-			prunedSrcTransactions = append(prunedSrcTransactions, transaction)
+	prunedCodaTransactions := filterCodaRows(account, rows.Rows)
+	log.Printf("Found %d rows from coda to audit.", len(prunedCodaTransactions))
+
+	var isCodaRemaining map[string]bool
+	var missingSrcTransactions []Transaction
+	for _, srcTrans := range prunedSrcTransactions {
+		// search for for corresponding Coda transaction with same value and date
+		found := false
+		for _, codaRow := range prunedCodaTransactions {
+
+			if val, isPresent := isCodaRemaining[codaRow.Id]; isPresent {
+				if isPresent && val {
+					log.Print("Already looked at coda row, skipping.")
+					continue
+				}
+			}
+
+			codaVal := codaRow.Values[AmountColumnId].(map[string]interface{})["amount"]
+			codaCreditRefId := codaRow.Values[CreditColumnId].(map[string]interface{})["rowId"]
+			codaDebitRefId := codaRow.Values[DebitColumnId].(map[string]interface{})["rowId"]
+			log.Print(codaVal)
+			log.Print(codaCreditRefId)
+			if account.IsCredit && srcTrans.GetAmount() < 0 {
+				// this means that this is an expense for a credit account, coda account id
+				//   should be in credit column
+
+				if math.Abs(float64(srcTrans.GetAmount())) == codaVal && account.CodaId == codaCreditRefId {
+					isCodaRemaining[codaRow.Id] = true
+					found = true
+				}
+			}
+
+			if account.IsCredit && srcTrans.GetAmount() > 0 {
+				// this means that the credit account is getting paid off, coda account id
+				//   should be in the debit column
+
+				if srcTrans.GetAmount() == codaVal && account.CodaId == codaDebitRefId {
+					isCodaRemaining[codaRow.Id] = true
+					found = true
+				}
+			}
+
+			if !account.IsCredit && srcTrans.GetAmount() > 0 {
+				// this means that an asset account is increasing, coda account should be in debit column
+				if srcTrans.GetAmount() == codaVal && account.CodaId == codaDebitRefId {
+					isCodaRemaining[codaRow.Id] = true
+					found = true
+				}
+			}
+
+			if !account.IsCredit && srcTrans.GetAmount() < 0 {
+				// this means that an asset account is decreasing, coda account should be in
+				//   credit column
+
+				if srcTrans.GetAmount() == codaVal && account.CodaId == codaCreditRefId {
+					isCodaRemaining[codaRow.Id] = true
+					found = true
+				}
+			}
+
+		}
+
+		if !found {
+			missingSrcTransactions = append(missingSrcTransactions, srcTrans)
 		}
 	}
 
-	log.Printf("Found %d pruned transactions from source.", len(prunedSrcTransactions))
-	// load input file, pare based on source type
-	//
-
-	for _, src := range prunedSrcTransactions {
-		log.Print(src)
-	}
-
-	prunedCodaTransactions := filterCodaRows(account, rows.Rows)
-	log.Printf("Found %d unpruned rows from coda.", len(rows.Rows))
-	log.Printf("Found %d rows from coda to audit.", len(prunedCodaTransactions))
+	log.Printf("Had %d missing src transactions.", len(missingSrcTransactions))
 
 	// sort by date
 	return false, nil
