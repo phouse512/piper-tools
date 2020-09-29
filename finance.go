@@ -37,7 +37,7 @@ type Account struct {
 
 type Transaction interface {
 	GetDate() time.Time
-	GetAmount() float32
+	GetAmount() float64
 	GetDescription() string
 }
 
@@ -47,7 +47,7 @@ type ChaseTransaction struct {
 	Description     string
 	Category        string
 	Type            string
-	Amount          float32
+	Amount          float64
 }
 
 func (c ChaseTransaction) GetDate() time.Time {
@@ -59,7 +59,7 @@ func (c ChaseTransaction) GetDate() time.Time {
 	return timeObj
 }
 
-func (c ChaseTransaction) GetAmount() float32 {
+func (c ChaseTransaction) GetAmount() float64 {
 	return c.Amount
 }
 
@@ -96,7 +96,7 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 			continue
 		}
 
-		val, err := strconv.ParseFloat(record[5], 32)
+		val, err := strconv.ParseFloat(record[5], 64)
 		if err != nil {
 			log.Print("Unable to parse value as float, skipping.")
 			continue
@@ -107,7 +107,7 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 			Description:     record[2],
 			Category:        record[3],
 			Type:            record[4],
-			Amount:          float32(val),
+			Amount:          float64(val),
 		}
 
 		transactions = append(transactions, newTransaction)
@@ -185,7 +185,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 	prunedCodaTransactions := filterCodaRows(account, rows.Rows)
 	log.Printf("Found %d rows from coda to audit.", len(prunedCodaTransactions))
 
-	var isCodaRemaining map[string]bool
+	isCodaRemaining := make(map[string]bool)
 	var missingSrcTransactions []Transaction
 	for _, srcTrans := range prunedSrcTransactions {
 		// search for for corresponding Coda transaction with same value and date
@@ -199,16 +199,13 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 				}
 			}
 
-			codaVal := codaRow.Values[AmountColumnId].(map[string]interface{})["amount"]
+			codaVal := codaRow.Values[AmountColumnId].(map[string]interface{})["amount"].(float64)
 			codaCreditRefId := codaRow.Values[CreditColumnId].(map[string]interface{})["rowId"]
 			codaDebitRefId := codaRow.Values[DebitColumnId].(map[string]interface{})["rowId"]
-			log.Print(codaVal)
-			log.Print(codaCreditRefId)
 			if account.IsCredit && srcTrans.GetAmount() < 0 {
 				// this means that this is an expense for a credit account, coda account id
 				//   should be in credit column
-
-				if math.Abs(float64(srcTrans.GetAmount())) == codaVal && account.CodaId == codaCreditRefId {
+				if math.Abs(srcTrans.GetAmount()) == codaVal && account.CodaId == codaCreditRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -218,7 +215,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 				// this means that the credit account is getting paid off, coda account id
 				//   should be in the debit column
 
-				if srcTrans.GetAmount() == codaVal && account.CodaId == codaDebitRefId {
+				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaDebitRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -226,7 +223,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 
 			if !account.IsCredit && srcTrans.GetAmount() > 0 {
 				// this means that an asset account is increasing, coda account should be in debit column
-				if srcTrans.GetAmount() == codaVal && account.CodaId == codaDebitRefId {
+				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaDebitRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -236,7 +233,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 				// this means that an asset account is decreasing, coda account should be in
 				//   credit column
 
-				if srcTrans.GetAmount() == codaVal && account.CodaId == codaCreditRefId {
+				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaCreditRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
