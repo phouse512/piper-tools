@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/olekukonko/tablewriter"
 	"github.com/phouse512/go-coda"
 	"github.com/spf13/viper"
 	"io"
@@ -175,10 +176,13 @@ func AuditHandler(sourceType, transactionFilePath, accountName string, startDate
 		}
 
 		// manually convert source transaction objects to generic Transaction to satisfy interface
-		transactions := make([]Transaction, len(sourceTransactions))
+		transactions = make([]Transaction, len(sourceTransactions))
 		for i := range sourceTransactions {
 			transactions[i] = sourceTransactions[i]
 		}
+
+		log.Print(len(sourceTransactions))
+		log.Print(len(transactions))
 	} else {
 		log.Printf("Invalid source type provided: %s", sourceType)
 		return false, errors.New("Invalid source type")
@@ -189,7 +193,7 @@ func AuditHandler(sourceType, transactionFilePath, accountName string, startDate
 	if err != nil {
 		return false, err
 	}
-
+	log.Printf("Transactions: %d", len(transactions))
 	isValid, err := AuditFinanceRange(account, transactions, startDate, endDate)
 	if err != nil {
 		log.Print("Unable to audit finance range with error: %s", err)
@@ -197,6 +201,21 @@ func AuditHandler(sourceType, transactionFilePath, accountName string, startDate
 	}
 
 	return isValid, nil
+}
+
+func displayResults(resultMap map[time.Time]bool) {
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Date", "Correct"})
+
+	for date, isValid := range resultMap {
+		validStr := "X"
+		if isValid {
+			validStr = "\u2713"
+		}
+		table.Append([]string{date.Format("01-02-06"), validStr})
+	}
+
+	table.Render()
 }
 
 func AuditFinanceRange(account Account, transactions []Transaction, startDate time.Time, endDate time.Time) (bool, error) {
@@ -221,7 +240,7 @@ func AuditFinanceRange(account Account, transactions []Transaction, startDate ti
 			break
 		}
 	}
-
+	displayResults(auditResults)
 	return false, nil
 }
 
