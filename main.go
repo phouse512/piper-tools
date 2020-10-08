@@ -36,14 +36,24 @@ func main() {
 								Aliases: []string{"f"},
 							},
 							&cli.StringFlag{
-								Name:    "date",
+								Name:    "startDate",
 								Usage:   "date string, %m-%d-%y",
-								Aliases: []string{"d"},
+								Aliases: []string{"sd"},
+							},
+							&cli.StringFlag{
+								Name:    "endDate",
+								Usage:   "date string, %m-%d-%y",
+								Aliases: []string{"ed"},
 							},
 							&cli.StringFlag{
 								Name:    "account",
 								Usage:   "acccount name",
 								Aliases: []string{"a"},
+							},
+							&cli.StringFlag{
+								Name:    "type",
+								Usage:   "source type, (Chase|Ally|Venmo)",
+								Aliases: []string{"t"},
 							},
 						},
 						Action: func(c *cli.Context) error {
@@ -59,29 +69,19 @@ func main() {
 								return nil
 							}
 
-							chaseTransactions, err := LoadChaseTransactions(c.String("filepath"))
-							if err != nil {
-								log.Println("Received error when loading transactions: ", err)
-								return nil
-							}
-
-							account, err := SearchAccount(c.String("account"))
-							if err != nil {
-								log.Printf("Unable to find account with name: %s", c.String("account"))
-								return nil
-							}
-
-							dateObj, err := time.Parse("01-02-06", c.String("date"))
+							startDateObj, err := time.Parse("01-02-06", c.String("startDate"))
 							if err != nil {
 								log.Println("Received error when parsing date: ", err)
 								return err
 							}
 
-							transactions := make([]Transaction, len(chaseTransactions))
-							for i := range chaseTransactions {
-								transactions[i] = chaseTransactions[i]
+							endDateObj, err := time.Parse("01-02-06", c.String("endDate"))
+							if err != nil {
+								log.Println("Received error when parsing date: ", err)
+								return err
 							}
-							result, err := AuditFinance(account, transactions, dateObj)
+
+							result, err := AuditHandler(c.String("type"), c.String("filepath"), c.String("account"), startDateObj, endDateObj)
 							log.Print(err)
 							log.Print(result)
 

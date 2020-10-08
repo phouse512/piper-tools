@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	MaxDuration = 100
 	ChaseSource = "Chase"
 	VenmoSource = "Venmo"
 
@@ -165,6 +166,65 @@ func SearchAccount(searchVal string) (Account, error) {
 	}, nil
 }
 
+func AuditHandler(sourceType, transactionFilePath, accountName string, startDate, endDate time.Time) (bool, error) {
+	var transactions []Transaction
+	if sourceType == ChaseSource {
+		sourceTransactions, err := LoadChaseTransactions(transactionFilePath)
+		if err != nil {
+			return false, err
+		}
+
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions := make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+	} else {
+		log.Printf("Invalid source type provided: %s", sourceType)
+		return false, errors.New("Invalid source type")
+	}
+
+	// find account with provided name
+	account, err := SearchAccount(accountName)
+	if err != nil {
+		return false, err
+	}
+
+	isValid, err := AuditFinanceRange(account, transactions, startDate, endDate)
+	if err != nil {
+		log.Print("Unable to audit finance range with error: %s", err)
+		return false, err
+	}
+
+	return isValid, nil
+}
+
+func AuditFinanceRange(account Account, transactions []Transaction, startDate time.Time, endDate time.Time) (bool, error) {
+	auditResults := make(map[time.Time]bool)
+
+	datePointer := startDate
+	for i := 0; i < MaxDuration; i++ {
+		log.Printf("Running audit on date: %s", datePointer)
+
+		isValid, err := AuditFinance(account, transactions, datePointer)
+		if err != nil {
+			log.Print("Received error when running audit.", err)
+			return false, err
+		}
+
+		auditResults[datePointer] = isValid
+
+		datePointer = datePointer.AddDate(0, 0, 1)
+
+		// check if we've eclipsed the end date
+		if datePointer.After(endDate) {
+			break
+		}
+	}
+
+	return false, nil
+}
+
 func AuditFinance(account Account, transactions []Transaction, date time.Time) (bool, error) {
 	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
 
@@ -246,8 +306,11 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 		}
 	}
 
-	log.Printf("Had %d missing src transactions.", len(missingSrcTransactions))
+	log.Printf("Had %d missing src transactions for date: %s.", len(missingSrcTransactions), date)
 
-	// sort by date
-	return false, nil
+	if len(missingSrcTransactions) > 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
