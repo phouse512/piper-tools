@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -193,7 +194,7 @@ func AuditHandler(sourceType, transactionFilePath, accountName string, startDate
 	if err != nil {
 		return false, err
 	}
-	log.Printf("Transactions: %d", len(transactions))
+
 	isValid, err := AuditFinanceRange(account, transactions, startDate, endDate)
 	if err != nil {
 		log.Print("Unable to audit finance range with error: %s", err)
@@ -207,9 +208,19 @@ func displayResults(resultMap map[time.Time]bool) {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Date", "Correct"})
 
-	for date, isValid := range resultMap {
+	dateArr := make([]time.Time, len(resultMap))
+	i := 0
+	for date, _ := range resultMap {
+		// https://stackoverflow.com/a/27848197/2457720
+		// according to this, better to use index instead of append, so using i for idx
+		dateArr[i] = date
+		i++
+	}
+
+	sort.Slice(dateArr, func(i, j int) bool { return dateArr[i].Before(dateArr[j]) })
+	for _, date := range dateArr {
 		validStr := "X"
-		if isValid {
+		if resultMap[date] {
 			validStr = "\u2713"
 		}
 		table.Append([]string{date.Format("01-02-06"), validStr})
