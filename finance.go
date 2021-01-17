@@ -13,11 +13,13 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const (
 	MaxDuration = 100
+	AllySource  = "Ally"
 	ChaseSource = "Chase"
 	VenmoSource = "Venmo"
 
@@ -26,6 +28,7 @@ const (
 	AccountsTableId     = "grid-Jzlaq7_uYQ"
 
 	AccountsNameColumnId = "c-mwy2jqwnOQ"
+	AccountsTypeColumnId = "c-BjJ_UnF3Al"
 	DateColumnId         = "c-4ID4XR1ync"
 	DebitColumnId        = "c-FVYpl1uPC1"
 	CreditColumnId       = "c-VvaO1RyiJN"
@@ -42,6 +45,65 @@ type Transaction interface {
 	GetDate() time.Time
 	GetAmount() float64
 	GetDescription() string
+}
+
+type VenmoTransaction struct {
+	Id       string
+	Datetime string
+	Type     string
+	Status   string
+	Note     string
+	From     string
+	To       string
+	Amount   float64
+}
+
+func (v VenmoTransaction) GetDate() time.Time {
+	timeObj, err := time.Parse("2006-01-02T15:04:05", v.Datetime)
+	if err != nil {
+		panic(err)
+	}
+
+	timeStr := timeObj.Format("2006-01-02")
+	dateObj, err := time.Parse("2006-01-02", timeStr)
+	if err != nil {
+		panic(err)
+	}
+
+	return dateObj
+}
+
+func (v VenmoTransaction) GetAmount() float64 {
+	return v.Amount
+}
+
+func (v VenmoTransaction) GetDescription() string {
+	return v.Note
+}
+
+type AllyTransaction struct {
+	Date        string
+	Time        string
+	Amount      float64
+	Type        string
+	Description string
+}
+
+func (a AllyTransaction) GetDate() time.Time {
+	timeObj, err := time.Parse("2006-01-02", a.Date)
+	if err != nil {
+		panic(err)
+	}
+
+	return timeObj
+}
+
+func (a AllyTransaction) GetAmount() float64 {
+	return a.Amount
+}
+
+func (a AllyTransaction) GetDescription() string {
+	return a.Description
 }
 
 type ChaseTransaction struct {
@@ -71,8 +133,110 @@ func (c ChaseTransaction) GetDescription() string {
 }
 
 type CodaTransaction struct {
-	TransactionDate string
-	Amount          float32
+	Id              string
+	TransactionDate time.Time
+	Amount          float64
+	DebitAccountId  string
+	CreditAccountId string
+}
+
+func NewCodaTransaction(row coda.Row) *CodaTransaction {
+	c := new(CodaTransaction)
+	c.Id = row.Id
+	c.CreditAccountId = row.Values[CreditColumnId].(map[string]interface{})["rowId"].(string)
+	c.DebitAccountId = row.Values[DebitColumnId].(map[string]interface{})["rowId"].(string)
+	c.Amount = row.Values[AmountColumnId].(map[string]interface{})["amount"].(float64)
+
+	return c
+}
+
+func LoadVenmoTransactions(inputFilePath string) ([]VenmoTransaction, error) {
+	transactions := []VenmoTransaction{}
+	csvfile, err := os.Open(inputFilePath)
+	if err != nil {
+		return transactions, err
+	}
+
+	r := csv.NewReader(csvfile)
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return transactions, err
+		}
+
+		if len(record) != 18 {
+			log.Print("Skipping because of invalid row count.")
+			continue
+		}
+
+		strippedStr := strings.ReplaceAll(record[8], " ", "")
+		strippedStr = strings.ReplaceAll(strippedStr, "$", "")
+		val, err := strconv.ParseFloat(strippedStr, 64)
+		if err != nil {
+			log.Print("Unable to parse value as float, skipping.")
+			continue
+		}
+
+		newTransaction := VenmoTransaction{
+			Id:       record[1],
+			Datetime: record[2],
+			Type:     record[3],
+			Status:   record[4],
+			Note:     record[5],
+			From:     record[6],
+			To:       record[7],
+			Amount:   val,
+		}
+
+		transactions = append(transactions, newTransaction)
+	}
+
+	return transactions, nil
+}
+
+func LoadAllyTransactions(inputFilePath string) ([]AllyTransaction, error) {
+	transactions := []AllyTransaction{}
+	csvfile, err := os.Open(inputFilePath)
+	if err != nil {
+		return transactions, err
+	}
+
+	r := csv.NewReader(csvfile)
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return transactions, err
+		}
+
+		if len(record) != 5 {
+			log.Print("Skipping row because of invalid row count.")
+			continue
+		}
+
+		val, err := strconv.ParseFloat(record[2], 64)
+		if err != nil {
+			log.Print("Unable to parse value as float, skipping.")
+			continue
+		}
+
+		newTransaction := AllyTransaction{
+			Date:        record[0],
+			Time:        record[1],
+			Amount:      val,
+			Type:        record[3],
+			Description: record[4],
+		}
+		transactions = append(transactions, newTransaction)
+	}
+	return transactions, nil
 }
 
 func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
@@ -121,7 +285,7 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 func filterSrcRows(date time.Time, rows []Transaction) []Transaction {
 	var prunedSrcTransactions []Transaction
 	for _, transaction := range rows {
-		if transaction.GetDate() == date {
+		if transaction.GetDate().Equal(date) {
 			prunedSrcTransactions = append(prunedSrcTransactions, transaction)
 		}
 	}
@@ -129,21 +293,72 @@ func filterSrcRows(date time.Time, rows []Transaction) []Transaction {
 	return prunedSrcTransactions
 }
 
-func filterCodaRows(account Account, rows []coda.Row) []coda.Row {
+func filterCodaRows(account Account, date time.Time, rows []CodaTransaction) []CodaTransaction {
 	// filter out coda rows by account
-	var prunedRows []coda.Row
+	var prunedRows []CodaTransaction
 	for _, row := range rows {
-
-		// convert interface{} to map, and access rowId
-		creditRefId := row.Values[CreditColumnId].(map[string]interface{})["rowId"]
-		debitRefId := row.Values[DebitColumnId].(map[string]interface{})["rowId"]
-
-		if debitRefId == account.CodaId || creditRefId == account.CodaId {
+		if row.DebitAccountId == account.CodaId || row.CreditAccountId == account.CodaId {
 			prunedRows = append(prunedRows, row)
 		}
 	}
 
 	return prunedRows
+}
+
+func fetchCodaRowsRange(startDate, endDate time.Time) []CodaTransaction {
+	// fetches all coda transaction rows over a time range.
+	var allRows []CodaTransaction
+	datePointer := startDate
+	for i := 0; i < MaxDuration; i++ {
+
+		codaDayRows := fetchCodaRows(datePointer)
+		allRows = append(allRows, codaDayRows...)
+
+		datePointer = datePointer.AddDate(0, 0, 1)
+
+		// check if we've eclipsed the end date
+		if datePointer.After(endDate) {
+			break
+		}
+	}
+
+	return allRows
+}
+
+func fetchCodaRows(date time.Time) []CodaTransaction {
+	// special helper function to fetch transactions by date, due to timezone issues with how dates are initialized
+	var totalRows []CodaTransaction
+	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
+
+	updatedDate := date.AddDate(0, 0, -1)
+	dateStringTz1 := fmt.Sprintf("%sT22:00:00.000-07:00", updatedDate.Format("2006-01-02"))
+	dateStringTz2 := fmt.Sprintf("%sT22:00:00.000-08:00", updatedDate.Format("2006-01-02"))
+	rowQuery1 := coda.ListRowsParameters{
+		Query:       fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz1),
+		ValueFormat: "rich",
+	}
+	rowQuery2 := coda.ListRowsParameters{
+		Query:       fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz2),
+		ValueFormat: "rich",
+	}
+	rows1, err1 := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery1)
+	rows2, err2 := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery2)
+	if err1 != nil || err2 != nil {
+		panic(err1)
+	}
+
+	// convert coda.Row objects to CodaTransaction
+	for i := range rows1.Rows {
+		codaTrans := NewCodaTransaction(rows1.Rows[i])
+		totalRows = append(totalRows, *codaTrans)
+	}
+
+	for i := range rows2.Rows {
+		codaTrans := NewCodaTransaction(rows2.Rows[i])
+		totalRows = append(totalRows, *codaTrans)
+	}
+
+	return totalRows
 }
 
 func SearchAccount(searchVal string) (Account, error) {
@@ -161,10 +376,15 @@ func SearchAccount(searchVal string) (Account, error) {
 		return Account{}, errors.New("Unable to find accounts with name.")
 	}
 
+	isCredit := true
+	if rowResp.Rows[0].Values[AccountsTypeColumnId] == "Asset" {
+		isCredit = false
+	}
+
 	return Account{
 		Name:     rowResp.Rows[0].Name,
 		CodaId:   rowResp.Rows[0].Id,
-		IsCredit: true,
+		IsCredit: isCredit,
 	}, nil
 }
 
@@ -181,9 +401,30 @@ func AuditHandler(sourceType, transactionFilePath, accountName string, startDate
 		for i := range sourceTransactions {
 			transactions[i] = sourceTransactions[i]
 		}
+	} else if sourceType == AllySource {
+		sourceTransactions, err := LoadAllyTransactions(transactionFilePath)
+		if err != nil {
+			return false, err
+		}
 
-		log.Print(len(sourceTransactions))
-		log.Print(len(transactions))
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions = make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+
+	} else if sourceType == VenmoSource {
+		sourceTransactions, err := LoadVenmoTransactions(transactionFilePath)
+		if err != nil {
+			return false, err
+		}
+
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions = make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+
 	} else {
 		log.Printf("Invalid source type provided: %s", sourceType)
 		return false, errors.New("Invalid source type")
@@ -231,12 +472,17 @@ func displayResults(resultMap map[time.Time]bool) {
 
 func AuditFinanceRange(account Account, transactions []Transaction, startDate time.Time, endDate time.Time) (bool, error) {
 	auditResults := make(map[time.Time]bool)
+	codaReadMap := make(map[string]bool)
+
+	// load all coda transaction rows
+	codaRows := fetchCodaRowsRange(startDate, endDate)
+	log.Printf("Found %d total rows from Coda in timerange.", len(codaRows))
 
 	datePointer := startDate
 	for i := 0; i < MaxDuration; i++ {
 		log.Printf("Running audit on date: %s", datePointer)
 
-		isValid, err := AuditFinance(account, transactions, datePointer)
+		isValid, err := AuditFinance(account, transactions, codaRows, datePointer, codaReadMap)
 		if err != nil {
 			log.Print("Received error when running audit.", err)
 			return false, err
@@ -255,24 +501,15 @@ func AuditFinanceRange(account Account, transactions []Transaction, startDate ti
 	return false, nil
 }
 
-func AuditFinance(account Account, transactions []Transaction, date time.Time) (bool, error) {
-	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
+func AuditFinance(account Account, transactions []Transaction, codaTransactions []CodaTransaction, date time.Time, codaReadMap map[string]bool) (bool, error) {
+	/*
+	* AuditFinance is responsible for auditing a single day of transactions, returns a boolean if the day is valid or not
 
-	updatedDate := date.AddDate(0, 0, -1)
-	dateStringTz := fmt.Sprintf("%sT22:00:00.000-07:00", updatedDate.Format("2006-01-02"))
-	rowQuery := coda.ListRowsParameters{
-		Query:       fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz),
-		ValueFormat: "rich",
-	}
-	rows, err := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery)
-	if err != nil {
-		panic(err)
-	}
-
+	 */
 	prunedSrcTransactions := filterSrcRows(date, transactions)
 	log.Printf("Found %d pruned transactions from source.", len(prunedSrcTransactions))
 
-	prunedCodaTransactions := filterCodaRows(account, rows.Rows)
+	prunedCodaTransactions := filterCodaRows(account, date, codaTransactions)
 	log.Printf("Found %d rows from coda to audit.", len(prunedCodaTransactions))
 
 	isCodaRemaining := make(map[string]bool)
@@ -282,20 +519,19 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 		found := false
 		for _, codaRow := range prunedCodaTransactions {
 
-			if val, isPresent := isCodaRemaining[codaRow.Id]; isPresent {
+			if val, isPresent := codaReadMap[codaRow.Id]; isPresent {
 				if isPresent && val {
 					log.Print("Already looked at coda row, skipping.")
 					continue
 				}
 			}
 
-			codaVal := codaRow.Values[AmountColumnId].(map[string]interface{})["amount"].(float64)
-			codaCreditRefId := codaRow.Values[CreditColumnId].(map[string]interface{})["rowId"]
-			codaDebitRefId := codaRow.Values[DebitColumnId].(map[string]interface{})["rowId"]
+			codaCreditRefId := codaRow.CreditAccountId
+			codaDebitRefId := codaRow.DebitAccountId
 			if account.IsCredit && srcTrans.GetAmount() < 0 {
 				// this means that this is an expense for a credit account, coda account id
 				//   should be in credit column
-				if math.Abs(srcTrans.GetAmount()) == codaVal && account.CodaId == codaCreditRefId {
+				if math.Abs(srcTrans.GetAmount()) == codaRow.Amount && account.CodaId == codaCreditRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -305,7 +541,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 				// this means that the credit account is getting paid off, coda account id
 				//   should be in the debit column
 
-				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaDebitRefId {
+				if float64(srcTrans.GetAmount()) == codaRow.Amount && account.CodaId == codaDebitRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -313,7 +549,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 
 			if !account.IsCredit && srcTrans.GetAmount() > 0 {
 				// this means that an asset account is increasing, coda account should be in debit column
-				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaDebitRefId {
+				if float64(srcTrans.GetAmount()) == codaRow.Amount && account.CodaId == codaDebitRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
@@ -323,7 +559,7 @@ func AuditFinance(account Account, transactions []Transaction, date time.Time) (
 				// this means that an asset account is decreasing, coda account should be in
 				//   credit column
 
-				if float64(srcTrans.GetAmount()) == codaVal && account.CodaId == codaCreditRefId {
+				if math.Abs(float64(srcTrans.GetAmount())) == codaRow.Amount && account.CodaId == codaCreditRefId {
 					isCodaRemaining[codaRow.Id] = true
 					found = true
 				}
