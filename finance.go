@@ -24,7 +24,7 @@ const (
 	VenmoSource = "Venmo"
 
 	FinanceDocId        = "sz-gfMWR-I"
-	TransactionsTableId = "grid-53oPnJh4Bt"
+	TransactionsTableId = "table-XeiKO3oHhz"
 	AccountsTableId     = "grid-Jzlaq7_uYQ"
 
 	AccountsNameColumnId = "c-mwy2jqwnOQ"
@@ -546,7 +546,10 @@ func AuditFinance(account Account, transactions []Transaction, codaTransactions 
 					found = true
 				}
 			}
-
+			//			log.Print(srcTrans.GetAmount())
+			//			log.Print(codaRow.Amount)
+			//			log.Print(account.CodaId)
+			//			log.Print(codaDebitRefId)
 			if !account.IsCredit && srcTrans.GetAmount() > 0 {
 				// this means that an asset account is increasing, coda account should be in debit column
 				if float64(srcTrans.GetAmount()) == codaRow.Amount && account.CodaId == codaDebitRefId {
