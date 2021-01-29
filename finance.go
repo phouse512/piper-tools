@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/avast/retry-go"
 	"github.com/olekukonko/tablewriter"
 	"github.com/phouse512/go-coda"
 	"github.com/spf13/viper"
@@ -341,10 +342,28 @@ func fetchCodaRows(date time.Time) []CodaTransaction {
 		Query:       fmt.Sprintf("%s:\"%s\"", DateColumnId, dateStringTz2),
 		ValueFormat: "rich",
 	}
-	rows1, err1 := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery1)
-	rows2, err2 := codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery2)
-	if err1 != nil || err2 != nil {
-		panic(err1)
+	var rows1, rows2 coda.ListRowsResponse
+	var err1, err2 error
+
+	err := retry.Do(
+		func() error {
+			rows1, err1 = codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery1)
+			rows2, err2 = codaClient.ListTableRows(FinanceDocId, TransactionsTableId, rowQuery2)
+			if err1 != nil {
+				return err1
+			}
+
+			if err2 != nil {
+				return err2
+			}
+
+			return nil
+		},
+	)
+
+	if err != nil {
+		log.Printf("Unable to get coda rows even with retry: %v", err)
+		panic(err)
 	}
 
 	// convert coda.Row objects to CodaTransaction

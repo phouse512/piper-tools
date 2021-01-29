@@ -1,5 +1,6 @@
 ## upcoming work
-
+[ ] show error code from api call
 [ ] modify filterCoda Rows to only look at time +- 10 days
 [ ] modify to return status code based on success / failure
+[ ] modify fetch coda rows to use worker pool to speed up api calls
 
