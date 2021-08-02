@@ -283,6 +283,55 @@ func LoadChaseTransactions(inputFilePath string) ([]ChaseTransaction, error) {
 	return transactions, nil
 }
 
+func LoadTransactions(sourceType, transactionFilePath string) ([]Transaction, error) {
+	// Utility wrapper that returns a list of Transaction objects
+	// @sourceType: string, <Ally|Chase|Venmo>
+	// @transactionFilePath: string, file path for transaction file
+	// returns: List of Transactions or error.
+	var transactions []Transaction
+	if sourceType == ChaseSource {
+		sourceTransactions, err := LoadChaseTransactions(transactionFilePath)
+		if err != nil {
+			return transactions, err
+		}
+
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions = make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+	} else if sourceType == AllySource {
+		sourceTransactions, err := LoadAllyTransactions(transactionFilePath)
+		if err != nil {
+			return transactions, err
+		}
+
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions = make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+
+	} else if sourceType == VenmoSource {
+		sourceTransactions, err := LoadVenmoTransactions(transactionFilePath)
+		if err != nil {
+			return transactions, err
+		}
+
+		// manually convert source transaction objects to generic Transaction to satisfy interface
+		transactions = make([]Transaction, len(sourceTransactions))
+		for i := range sourceTransactions {
+			transactions[i] = sourceTransactions[i]
+		}
+
+	} else {
+		log.Printf("Invalid source type provided: %s", sourceType)
+		return transactions, errors.New("Invalid source type")
+	}
+
+	return transactions, nil
+}
+
 func filterSrcRows(date time.Time, rows []Transaction) []Transaction {
 	var prunedSrcTransactions []Transaction
 	for _, transaction := range rows {
@@ -405,6 +454,36 @@ func SearchAccount(searchVal string) (Account, error) {
 		CodaId:   rowResp.Rows[0].Id,
 		IsCredit: isCredit,
 	}, nil
+}
+
+type FillParameters struct {
+	SourceType          string `json:"sourceType"`
+	TransactionFilePath string `json:"transactionFilePath"`
+	Commit              bool   `json:"commit"`
+}
+
+func FillHandler(fillParams FillParameters) (bool, error) {
+	// FillHandler is responsible for filling in CodaRows based on transaction inputs.
+	// @sourceType: string, Chase|Venmo|Ally
+	// @transactionFilePath: string, filepath to csv inputs
+	// @commit: bool, whether or not results will be committed to Coda or not.
+
+	// validate inputs
+	if !(fillParams.SourceType == AllySource || fillParams.SourceType == ChaseSource || fillParams.SourceType == VenmoSource) {
+		return false, errors.New("Provided SourceType not valid.")
+	}
+
+	// load account map
+
+	// load Transactions array from file
+
+	// get rows using build coda rows func
+
+	// commit if necessary
+
+	// return status
+
+	return true, nil
 }
 
 func AuditHandler(sourceType, transactionFilePath, accountName string, startDate, endDate time.Time) (bool, error) {
