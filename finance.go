@@ -429,31 +429,48 @@ func fetchCodaRows(date time.Time) []CodaTransaction {
 	return totalRows
 }
 
-func SearchAccount(searchVal string) (Account, error) {
-	codaClient := coda.DefaultClient(viper.GetString("coda_api_key"))
+type CodaTransactionBuilder interface {
+	Build(tx Transaction) (CodaTransaction, error)
+}
 
-	rowQuery := coda.ListRowsParameters{
-		Query: fmt.Sprintf("%s:\"%s\"", AccountsNameColumnId, searchVal),
-	}
-	rowResp, err := codaClient.ListTableRows(FinanceDocId, AccountsTableId, rowQuery)
-	if err != nil {
-		return Account{}, err
+type ManualCodaBuilder struct {
+	accountDao *AccountDao
+}
+
+func (m ManualCodaBuilder) Build(tx Transaction) (CodaTransaction, error) {
+	// Implementation for manual coda transaction builder, displays info and prompts for desired
+	//   credit/debit accounts.
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Date", "Amount", "Description"})
+	// display data about tx
+	table.Append([]string{
+		tx.GetDate().Format("Mon Jan _2 15:04:05 2006"),
+		fmt.Sprintf("%f", tx.GetAmount()),
+		tx.GetDescription(),
+	})
+	table.Render()
+
+	// prompt for input for which account, store if accurate
+	return CodaTransaction{}, nil
+}
+
+func BuildCodaTransactions(txs []Transaction, builder CodaTransactionBuilder) ([]CodaTransaction, error) {
+	// Builds a list of CodaTransactions based on generic source types. Returns a list or an error
+	// @txs: []Transaction, list of generic Transaction objects
+	// @builder: struct that implements the transaction builder interface
+
+	// loop through txs, get coda transactions
+	var codaTxs []CodaTransaction
+	for _, tx := range txs {
+		codaTx, err := builder.Build(tx)
+		if err != nil {
+			return codaTxs, err
+		}
+		codaTxs = append(codaTxs, codaTx)
 	}
 
-	if len(rowResp.Rows) != 1 {
-		return Account{}, errors.New("Unable to find accounts with name.")
-	}
-
-	isCredit := true
-	if rowResp.Rows[0].Values[AccountsTypeColumnId] == "Asset" {
-		isCredit = false
-	}
-
-	return Account{
-		Name:     rowResp.Rows[0].Name,
-		CodaId:   rowResp.Rows[0].Id,
-		IsCredit: isCredit,
-	}, nil
+	return codaTxs, nil
 }
 
 type FillParameters struct {
@@ -473,12 +490,21 @@ func FillHandler(fillParams FillParameters) (bool, error) {
 		return false, errors.New("Provided SourceType not valid.")
 	}
 
-	// load account map
+	// load account dao
+	accountDao := InitializeAccountDao()
 
 	// load Transactions array from file
+	transactions, err := LoadTransactions(fillParams.SourceType, fillParams.TransactionFilePath)
+	if err != nil {
+		return false, err
+	}
+
+	// initialize builder
+	builder := ManualCodaBuilder{accountDao: accountDao}
 
 	// get rows using build coda rows func
-
+	codaTxs, err := BuildCodaTransactions(transactions, builder)
+	log.Print(codaTxs)
 	// commit if necessary
 
 	// return status

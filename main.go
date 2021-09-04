@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	viper.SetConfigName("config")
+	viper.SetConfigName("config2")
 	viper.SetConfigType("json")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
@@ -26,6 +26,27 @@ func main() {
 				Aliases: []string{"f"},
 				Usage:   "access financial data",
 				Subcommands: []*cli.Command{
+					{
+						Name: "fill",
+						Usage: "uses fill mode to generate coda transactions",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name: "filepath",
+								Usage: "filepath to the csv.",
+								Aliases: []string{"f"},
+							},
+							&cli.StringFlag{
+								Name:    "type",
+								Usage:   "source type, (Chase|Ally|Venmo)",
+								Aliases: []string{"t"},
+							},
+							&cli.BoolFlag{
+								Name: "commit",
+								Usage: "commit and save results",
+								Aliases: []string{"c"},
+							}
+						}
+					},
 					{
 						Name:  "audit",
 						Usage: "audit financial data with coda",
