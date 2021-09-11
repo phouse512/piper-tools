@@ -3,8 +3,8 @@
 [ ] modify filterCoda Rows to only look at time +- 10 days
 [ ] modify to return status code based on success / failure
 [ ] modify fetch coda rows to use worker pool to speed up api calls
-[ ] Venmo needs to create a pass-through row for when it access fund directly from internet transfer account
+[x] Venmo needs to create a pass-through row for when it access fund directly from internet transfer account
 [ ] unit-test test conditions
 [ ] if extraneous Coda transactions exist, audit and return an error
-[ ] implement custom error transaction baased on type of mismatch
+[ ] implement custom error transaction based on type of mismatch
 

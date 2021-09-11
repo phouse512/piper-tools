@@ -484,6 +484,7 @@ func FillHandler(fillParams FillParameters) (bool, error) {
 	// @sourceType: string, Chase|Venmo|Ally
 	// @transactionFilePath: string, filepath to csv inputs
 	// @commit: bool, whether or not results will be committed to Coda or not.
+	log.Printf("Commit mode: %b", fillParams.Commit)
 
 	// validate inputs
 	if !(fillParams.SourceType == AllySource || fillParams.SourceType == ChaseSource || fillParams.SourceType == VenmoSource) {

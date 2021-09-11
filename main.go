@@ -27,12 +27,12 @@ func main() {
 				Usage:   "access financial data",
 				Subcommands: []*cli.Command{
 					{
-						Name: "fill",
+						Name:  "fill",
 						Usage: "uses fill mode to generate coda transactions",
 						Flags: []cli.Flag{
 							&cli.StringFlag{
-								Name: "filepath",
-								Usage: "filepath to the csv.",
+								Name:    "filepath",
+								Usage:   "filepath to the csv.",
 								Aliases: []string{"f"},
 							},
 							&cli.StringFlag{
@@ -41,11 +41,31 @@ func main() {
 								Aliases: []string{"t"},
 							},
 							&cli.BoolFlag{
-								Name: "commit",
-								Usage: "commit and save results",
+								Name:    "commit",
+								Usage:   "commit and save results",
 								Aliases: []string{"c"},
+							},
+						},
+						Action: func(c *cli.Context) error {
+							log.Printf("Running fill handler for transactions")
+
+							// create fill parameters
+							fillParams := FillParameters{
+								SourceType:          c.String("type"),
+								TransactionFilePath: c.String("filepath"),
+								Commit:              c.Bool("commit"),
 							}
-						}
+							success, err := FillHandler(fillParams)
+							if err != nil {
+								log.Fatalf("Unable to complete fill handler with err: %v", err)
+								return err
+							}
+
+							if success {
+								log.Printf("Successfully ran fill command.")
+							}
+							return nil
+						},
 					},
 					{
 						Name:  "audit",
