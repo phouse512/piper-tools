@@ -8,8 +8,9 @@ go 1.15
 require github.com/urfave/cli/v2 v2.0.0
 
 require (
+	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/olekukonko/tablewriter v0.0.4
 	github.com/phouse512/go-coda v1.1.1
+	github.com/rivo/tview v0.0.0-20210909154944-f7430b878d17
 	github.com/spf13/viper v1.7.1
-	github.com/avast/retry-go v3.0.0+incompatible
 )

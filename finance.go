@@ -7,6 +7,7 @@ import (
 	"github.com/avast/retry-go"
 	"github.com/olekukonko/tablewriter"
 	"github.com/phouse512/go-coda"
+	"github.com/rivo/tview"
 	"github.com/spf13/viper"
 	"io"
 	"log"
@@ -141,6 +142,12 @@ type CodaTransaction struct {
 	CreditAccountId string
 }
 
+func (c CodaTransaction) GetHash() string {
+	// GetHash returns a unique string that is a combination of the source input attributes to
+	//   prevent duplicate entries by various systems.
+	return "hello"
+}
+
 func NewCodaTransaction(row coda.Row) *CodaTransaction {
 	c := new(CodaTransaction)
 	c.Id = row.Id
@@ -148,6 +155,7 @@ func NewCodaTransaction(row coda.Row) *CodaTransaction {
 	c.DebitAccountId = row.Values[DebitColumnId].(map[string]interface{})["rowId"].(string)
 	c.Amount = row.Values[AmountColumnId].(map[string]interface{})["amount"].(float64)
 
+	// TODO: fetch the notes/ hash column
 	return c
 }
 
@@ -170,6 +178,7 @@ func LoadVenmoTransactions(inputFilePath string) ([]VenmoTransaction, error) {
 		}
 
 		if len(record) != 18 {
+			log.Print(record)
 			log.Print("Skipping because of invalid row count.")
 			continue
 		}
@@ -437,21 +446,80 @@ type ManualCodaBuilder struct {
 	accountDao *AccountDao
 }
 
+func (m ManualCodaBuilder) getAccountInfo(tx Transaction) (string, string) {
+	// Internal method for gathering account data by using a CLI view management tool
+	//   to prompt users for accounts. Returns two strings, CodaIds for each respective
+	//   accounts.
+
+	app := tview.NewApplication()
+
+	// build right bar, for accounts
+	// 	accountView := tview.NewTextView().SetTextAlign(tview.AlignCenter).SetText("Accounts")
+	accountView := tview.NewTextView()
+	accountListText := ""
+
+	for idx, account := range m.accountDao.Accounts {
+		accountListText = accountListText + fmt.Sprintf("%d: %s\n", idx, account.Name)
+	}
+	accountView.SetText(accountListText).SetScrollable(true)
+
+	formView := tview.NewForm().
+		AddInputField("Credit Account:", "", 10, nil, nil).
+		AddInputField("Debit Account:", "", 10, nil, nil)
+
+	accountIndexId, debitIndexId := -1, -1
+	var convErr error
+	formView.AddButton("Save", func() {
+		accountIndexId, convErr = strconv.Atoi(formView.GetFormItem(0).(*tview.InputField).GetText())
+		if convErr != nil {
+			return
+		}
+		debitIndexId, convErr = strconv.Atoi(formView.GetFormItem(1).(*tview.InputField).GetText())
+		if convErr != nil {
+			return
+		}
+		app.Stop()
+	}).
+		AddButton("Quit", func() {
+			app.Stop()
+		})
+
+	txView := tview.NewTextView()
+	txText := fmt.Sprintf("Date: %s\n", tx.GetDate().Format("Mon Jan _2 15:04:05 2006"))
+	txText = txText + fmt.Sprintf("Amount: %f\n", tx.GetAmount())
+	txText = txText + fmt.Sprintf("Description: %s\n", tx.GetDescription())
+	txView.SetText(txText).SetBorder(true)
+	txView.SetTitle("Transaction").SetTitleAlign(tview.AlignLeft)
+
+	selectView := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(txView, 0, 5, false).
+		AddItem(formView, 0, 3, false)
+
+	flex := tview.NewFlex().
+		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
+			AddItem(selectView, 0, 1, true).
+			AddItem(accountView, 0, 1, false), 0, 1, true)
+
+	if err := app.SetRoot(flex, true).SetFocus(formView).Run(); err != nil {
+		panic(err)
+	}
+	return m.accountDao.Accounts[accountIndexId].CodaId,
+		m.accountDao.Accounts[debitIndexId].CodaId
+}
+
 func (m ManualCodaBuilder) Build(tx Transaction) (CodaTransaction, error) {
 	// Implementation for manual coda transaction builder, displays info and prompts for desired
 	//   credit/debit accounts.
+	// render list of accounts first
+	_, err := m.accountDao.List()
+	if err != nil {
+		return CodaTransaction{}, nil
+	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Date", "Amount", "Description"})
-	// display data about tx
-	table.Append([]string{
-		tx.GetDate().Format("Mon Jan _2 15:04:05 2006"),
-		fmt.Sprintf("%f", tx.GetAmount()),
-		tx.GetDescription(),
-	})
-	table.Render()
+	debitId, creditId := m.getAccountInfo(tx)
+	log.Printf("Debit: %s", debitId)
+	log.Printf("Credit: %s", creditId)
 
-	// prompt for input for which account, store if accurate
 	return CodaTransaction{}, nil
 }
 

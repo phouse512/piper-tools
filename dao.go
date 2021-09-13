@@ -38,3 +38,9 @@ func (a AccountDao) ByCodaId(id string) (Account, error) {
 
 	return account, nil
 }
+
+func (a AccountDao) List() ([]Account, error) {
+	// Returns a list of Account objects
+
+	return a.Accounts, nil
+}
